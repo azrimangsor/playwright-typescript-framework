@@ -6,6 +6,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: 1,
   timeout: 30_000,
+  expect: { timeout: 15_000 },
   reporter: [
     ['list'],
     ['html', { open: 'never' }],
@@ -25,7 +26,7 @@ export default defineConfig({
       testDir: './src/ui',
       use: {
         ...devices['Desktop Chrome'],
-        baseURL: process.env.BASE_URL ?? 'https://demo.playwright.dev/todomvc/',
+        baseURL: process.env.BASE_URL ?? 'https://www.luno.com/en-my/',
       },
     },
     {
@@ -33,7 +34,7 @@ export default defineConfig({
       testDir: './src/ui',
       use: {
         ...devices['Desktop Firefox'],
-        baseURL: process.env.BASE_URL ?? 'https://demo.playwright.dev/todomvc/',
+        baseURL: process.env.BASE_URL ?? 'https://www.luno.com/en-my/',
       },
     },
     {
@@ -41,7 +42,7 @@ export default defineConfig({
       testDir: './src/ui',
       use: {
         ...devices['Desktop Safari'],
-        baseURL: process.env.BASE_URL ?? 'https://demo.playwright.dev/todomvc/',
+        baseURL: process.env.BASE_URL ?? 'https://www.luno.com/en-my/',
       },
     },
     {

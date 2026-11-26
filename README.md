@@ -39,11 +39,22 @@ npm test -- --project=chromium --repeat-each=2
 npm test -- --project=chromium --debug
 ```
 
-The UI examples use the public [Playwright TodoMVC demo](https://demo.playwright.dev/todomvc/).
-They cover creation/completion, filtering, reload persistence, editing, and
-clearing completed items. Each test receives a fresh browser context; closing
-that context automatically discards its local storage and cookies. No shared
-server-side data is changed.
+The UI examples test the live, public [Luno Malaysia website](https://www.luno.com/en-my/)
+without signing in. They are grouped by feature:
+
+- `src/ui/luno/home.spec.ts`: navigation (header product menu, account links)
+  and compliance (regulatory disclosure, risk warning).
+- `src/ui/luno/market-prices.spec.ts`: search, category filtering, and asset
+  chart timeframes.
+
+The tests are read-only, and each receives a fresh browser context. The account
+app (`luno.com/signup` and `/login`) sits behind Cloudflare bot protection, so
+tests only check that the links point to it and never open it. The cookie banner
+and the "view our local site?" prompt appear only in some regions;
+`BasePage.dismissOverlaysWhenShown` dismisses them whenever they appear instead of
+asserting them. The site ignores input until its scripts load, which can take
+about 20s in Firefox and WebKit, so page objects retry interactions until the
+expected outcome appears.
 
 The API examples make read-only GET requests to
 [JSONPlaceholder](https://jsonplaceholder.typicode.com/), covering a single post,
@@ -51,6 +62,8 @@ user filtering, and a missing post. API request contexts are also isolated and
 disposed automatically by Playwright.
 
 Public services require internet access and may be unavailable or rate-limited.
+Live production content, regional behaviour, and bot protection can also change;
+CI runners outside Malaysia may see different pages.
 Failures are reported normally, not skipped or replaced with mocked successes.
 Examples run with one worker by default to limit public-service traffic and
 local browser resource usage. Override with `--workers` when appropriate.
@@ -65,12 +78,20 @@ scripts/dashboard.test.mts       Dashboard generator regression checks
 src/
   api/posts.spec.ts              Read-only public API examples
   fixtures/demo-data.ts          Shared, non-sensitive example data
-  pages/base.page.ts             Shared navigation
-  pages/pageManager.page.ts      Page object composition
-  pages/todo.page.ts             TodoMVC interactions and accessible locators
-  ui/todo.spec.ts                Independent UI examples
+  pages/base.page.ts             Shared site chrome: navigation, cookies, header, footer, retries
+  pages/pageManager.page.ts      Composes the page objects for the pageManager fixture
+  pages/home.page.ts             Luno home page (extends BasePage)
+  pages/market-prices.page.ts    Luno market prices and search (extends BasePage)
+  pages/asset-detail.page.ts     Luno asset detail and price chart (extends BasePage)
+  ui/luno/*.spec.ts              UI examples grouped by feature
   utils/fixtures.ts              Typed page manager and test data fixtures
 ```
+
+Every page object extends `BasePage`, so header, footer, cookie, and
+retry behaviour are defined once. `PageManager` creates each page object for the
+test's `page`; tests use the `pageManager` fixture, for example
+`pageManager.marketPricesPage.openSearchResult(...)`, instead of constructing
+page objects themselves.
 
 Tests import `test` and `expect` from the shared fixture module. Add UI interactions
 to page objects and assertions to tests. See
@@ -84,11 +105,11 @@ The existing [Playwright config](playwright.config.ts) defines `chromium`,
 branded Safari browser. API tests do not launch a browser.
 
 `BASE_URL` and `API_BASE_URL` override the example endpoints. Overrides must serve
-the same TodoMVC UI or JSONPlaceholder API contract until you adapt the page
+the same Luno UI or JSONPlaceholder API contract until you adapt the page
 objects and tests. For example, in PowerShell:
 
 ```powershell
-$env:BASE_URL = 'https://demo.playwright.dev/todomvc/'
+$env:BASE_URL = 'https://www.luno.com/en-my/'
 $env:API_BASE_URL = 'https://jsonplaceholder.typicode.com'
 npm test -- --project=chromium --project=api
 ```
