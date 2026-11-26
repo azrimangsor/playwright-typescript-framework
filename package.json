@@ -12,6 +12,8 @@
     "test:headed": "playwright test --headed",
     "test:list": "playwright test --list",
     "report": "playwright show-report",
+    "dashboard": "node scripts/dashboard.mts",
+    "test:dashboard": "node --test scripts/dashboard.test.mts",
     "typecheck": "tsc --noEmit"
   },
   "license": "MIT",

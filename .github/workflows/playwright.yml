@@ -30,13 +30,40 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
+      - name: Test dashboard generator
+        run: npm run test:dashboard
+
+      - name: Restore dashboard history
+        uses: actions/cache/restore@v4
+        with:
+          path: dashboard/history.json
+          key: dashboard-v1-${{ runner.os }}-${{ github.ref }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            dashboard-v1-${{ runner.os }}-${{ github.ref }}-
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium firefox webkit
 
       - name: Run UI and API examples
+        id: tests
         run: npm test
 
-      - name: Upload HTML report and failure artifacts
+      - name: Generate engineering dashboard
+        id: dashboard
+        if: ${{ !cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        run: |
+          npm run dashboard
+          echo "### Engineering dashboard" >> "$GITHUB_STEP_SUMMARY"
+          echo "Download the playwright-results artifact and open dashboard/index.html. Keep the extracted folders together for Playwright report links." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save dashboard history
+        if: ${{ !cancelled() && steps.dashboard.outcome == 'success' }}
+        uses: actions/cache/save@v4
+        with:
+          path: dashboard/history.json
+          key: dashboard-v1-${{ runner.os }}-${{ github.ref }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload dashboard, HTML report, and failure artifacts
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
@@ -44,4 +71,5 @@ jobs:
           path: |
             playwright-report/
             test-results/
+            dashboard/
           retention-days: 7

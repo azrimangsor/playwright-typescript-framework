@@ -26,6 +26,12 @@ another case to create data or establish browser state.
 Replace them with your own test management IDs when adopting the examples.
 No Zephyr service or credentials are required.
 
+Dashboard generator checks run separately with `npm run test:dashboard`, using
+Node's built-in test runner. Their `ZEPHYR-TODO-DASH-*` IDs are also unassigned
+placeholders, classified as P2 / `@regression`. They cover aggregation/retries,
+safe rendering and branding validation, empty/error runs, bounded history, and
+file generation/input failures; they do not add application UI/API coverage.
+
 The five UI cases run in Chromium, Firefox, and WebKit. The three API cases
 run once in the `api` project: 18 executions in total, or four for smoke.
 

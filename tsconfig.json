@@ -6,6 +6,7 @@
     "lib": ["ES2022", "DOM"],
     "strict": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
@@ -14,6 +15,6 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "playwright.config.ts"],
+  "include": ["src/**/*.ts", "scripts/**/*.mts", "playwright.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

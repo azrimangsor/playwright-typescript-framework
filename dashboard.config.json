@@ -1,0 +1,8 @@
+{
+  "brandName": "YOUR BRAND",
+  "platformName": "Test Automation Platform",
+  "reportTitle": "Engineering overview",
+  "environment": "test",
+  "accentColor": "#007db8",
+  "historyLimit": 20
+}
