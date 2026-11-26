@@ -78,22 +78,28 @@ jobs:
         with:
           name: playwright-results
 
-      - name: Restore dashboard history
-        uses: actions/cache/restore@v4
-        with:
-          path: dashboard/history.json
-          key: dashboard-v1-${{ runner.os }}-${{ github.ref }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            dashboard-v1-${{ runner.os }}-${{ github.ref }}-
+      - name: Restore published dashboard history
+        run: |
+          published_branch=$(git ls-remote --heads origin refs/heads/gh-pages)
+          if [ -z "$published_branch" ]; then
+            echo "No gh-pages branch yet; starting dashboard history."
+          else
+            git fetch --depth=1 origin gh-pages
+            history_file=$(git ls-tree --name-only FETCH_HEAD history/history.json)
+            if [ -n "$history_file" ]; then
+              mkdir -p dashboard
+              git show FETCH_HEAD:history/history.json > dashboard/history.json
+            else
+              echo "No published dashboard history yet; starting dashboard history."
+            fi
+          fi
 
       - name: Generate engineering dashboard
-        run: npm run dashboard
-
-      - name: Save dashboard history
-        uses: actions/cache/save@v4
-        with:
-          path: dashboard/history.json
-          key: dashboard-v1-${{ runner.os }}-${{ github.ref }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          npm run dashboard
+          test -s dashboard/index.html
+          test -s dashboard/history.json
+          test -s playwright-report/index.html
 
       - name: Upload dashboard and Playwright report
         id: dashboard-artifact
@@ -104,7 +110,7 @@ jobs:
             dashboard/
             playwright-report/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
 
       - name: Link dashboard artifact in Actions summary
         env:
@@ -115,15 +121,24 @@ jobs:
       - name: Prepare GitHub Pages site
         if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         run: |
-          mkdir -p _site
+          run_path="runs/$GITHUB_RUN_NUMBER/$GITHUB_RUN_ATTEMPT"
+          mkdir -p "_site/$run_path" _site/history
           cp -R dashboard playwright-report _site/
+          cp -R dashboard playwright-report "_site/$run_path/"
+          cp dashboard/history.json _site/history/history.json
           cp .github/pages/index.html _site/index.html
+          test -s "_site/$run_path/dashboard/index.html"
+          test -s "_site/$run_path/dashboard/history.json"
+          test -s "_site/$run_path/playwright-report/index.html"
 
       - name: Upload GitHub Pages site
         if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
+          name: github-pages-site
           path: _site/
+          if-no-files-found: error
+          retention-days: 7
 
   deploy-dashboard:
     name: Publish dashboard
@@ -132,24 +147,69 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-24.04
     permissions:
+      contents: write
       pages: write
-      id-token: write
     concurrency:
       group: github-pages
       cancel-in-progress: false
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ vars.PAGES_URL || format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
     steps:
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
+      - name: Download generated site
+        uses: actions/download-artifact@v4
+        with:
+          name: github-pages-site
+          path: published-site
 
-      - name: Deploy dashboard to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Verify published report files
+        run: |
+          test -s published-site/index.html
+          test -s published-site/history/history.json
+          test -s "published-site/runs/$GITHUB_RUN_NUMBER/$GITHUB_RUN_ATTEMPT/dashboard/index.html"
+          test -s "published-site/runs/$GITHUB_RUN_NUMBER/$GITHUB_RUN_ATTEMPT/playwright-report/index.html"
+
+      - name: Publish reports to gh-pages
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: published-site
+          keep_files: true
+
+      - name: Request GitHub Pages build
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            let site;
+            try {
+              ({ data: site } = await github.rest.repos.getPages({ owner, repo }));
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              core.setFailed('Reports were pushed to gh-pages, but Pages is not enabled. In Settings > Pages select Deploy from a branch > gh-pages > /(root), then rerun this workflow.');
+              return;
+            }
+            if (site.build_type !== 'legacy' || site.source?.branch !== 'gh-pages' || site.source?.path !== '/') {
+              core.setFailed('Pages must use Deploy from a branch > gh-pages > /(root). Update Settings > Pages, then rerun this workflow.');
+              return;
+            }
+            await github.rest.repos.requestPagesBuild({ owner, repo });
+            core.info('GitHub Pages build requested. Check the Pages build for deployment status.');
 
       - name: Link live dashboard in Actions summary
         env:
-          DASHBOARD_URL: ${{ steps.deployment.outputs.page_url }}
+          PAGES_URL: ${{ vars.PAGES_URL || format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
         run: |
-          printf '### Engineering dashboard\n\n[View live dashboard](%s)\n\nThis URL shows the latest published default-branch report, including failed test runs. Download the engineering-dashboard artifact for this specific run.\n' "$DASHBOARD_URL" >> "$GITHUB_STEP_SUMMARY"
+          pages_url="${PAGES_URL%/}"
+          run_url="$pages_url/runs/$GITHUB_RUN_NUMBER/$GITHUB_RUN_ATTEMPT"
+          {
+            echo "### Engineering dashboard"
+            echo ""
+            echo "- [View dashboard for this run]($run_url/dashboard/index.html)"
+            echo "- [View Playwright report for this run]($run_url/playwright-report/index.html)"
+            echo "- [View latest dashboard]($pages_url/dashboard/index.html)"
+            echo ""
+            echo "Files were pushed to gh-pages and a Pages build was requested. Check the Pages build for completion; the site may take a few minutes to update."
+            echo "One-time setup: Settings > Pages > Deploy from a branch > gh-pages > /(root)."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -164,47 +164,87 @@ The existing `.github/workflows/playwright.yml` has three independent jobs:
    results, checks the generator, and builds the dashboard, **even if tests
    fail**. Test failures remain failures; they are not masked. This job is
    skipped if tests never ran or the workflow was cancelled.
-3. **Publish dashboard** deploys the generated site to GitHub Pages, only for
-   non-PR runs on the repository's default branch. It can publish failing test
-   results as long as dashboard generation succeeded. Other branches and pull
-   requests do not publish or overwrite the live site.
+3. **Publish dashboard** pushes the generated site to the `gh-pages` branch using
+   the pinned `peaceiris/actions-gh-pages` action and explicitly requests a Pages
+   build, only for non-PR runs on the repository's default branch. It can publish
+   failing test results as long as dashboard generation succeeded. Other
+   branches and pull requests do not publish or overwrite the live site.
 
 The **Generate dashboard** summary contains a download link to the
 `engineering-dashboard` artifact, which includes `dashboard` and
-`playwright-report`. Extract it and open `dashboard/index.html`. Both report
-artifacts are retained for seven days. HTML artifacts cannot be viewed directly
-inside GitHub Actions; the live browser-viewable link uses GitHub Pages.
+`playwright-report`. Extract it and open `dashboard/index.html`. This artifact is
+retained for 14 days; raw test results are retained for seven days. HTML artifacts
+cannot be viewed directly inside GitHub Actions; browser-viewable links use
+GitHub Pages.
 
 #### Enable the clickable live dashboard
 
-1. In repository **Settings > Pages > Build and deployment**, set **Source** to
-   **GitHub Actions**. The repository/organization must allow GitHub Pages.
-2. If required, approve/configure the `github-pages` deployment environment and
-   allow deployments from the default branch.
-3. Push this workflow to the default branch, or run **Playwright Tests** manually
-   on that branch after the workflow is available there.
-4. Open the Actions run summary. Click **View live dashboard** in the **Publish
-   dashboard** summary, or use the `github-pages` environment deployment link.
+1. Allow GitHub Actions to write repository contents (repository/organization
+   policies and branch rules must allow `GITHUB_TOKEN` to push to `gh-pages`).
+2. Push this workflow to the default branch, or run **Playwright Tests** manually
+   on that branch. The first successful publish creates `gh-pages`.
+3. In repository **Settings > Pages > Build and deployment**, set **Source** to
+   **Deploy from a branch**, select **gh-pages**, and select **/(root)**. This is
+   required even though the workflow creates the branch. Do not select
+   **GitHub Actions** for this branch-based deployment.
+4. If required, approve/configure the `github-pages` environment to allow
+   deployments from the default branch.
+5. Rerun the workflow after configuring Pages. The publishing job reports a
+   clear error until it can verify branch-based Pages settings. A `GITHUB_TOKEN`
+   push alone does not trigger a Pages build, so the job explicitly requests
+   one through the GitHub API.
+6. Once the Pages build completes, open the Actions run summary. Under **Publish
+   dashboard**, click **View dashboard for this run**.
 
-The Pages root redirects to the dashboard. Playwright report links remain
-functional because only `dashboard`, `playwright-report`, and the landing page
-are staged for publishing, not the repository source or raw results directory.
-The live URL shows the most recently deployed default-branch report; it is not
-a permanent per-run URL. Use that run's artifact for an archived snapshot.
+The workflow no longer calls `actions/configure-pages` or `actions/deploy-pages`.
+A `Get Pages site failed: Not Found` error from the old workflow indicates Pages
+was not enabled/configured; it does not mean dashboard generation failed.
+Branch publishing still requires the one-time Pages setup above.
+
+By default, links use `https://<owner>.github.io/<repository>`. Set the repository
+Actions variable `PAGES_URL` to your actual site root for a custom domain,
+enterprise Pages host, or an `<owner>.github.io` repository hosted at the domain
+root. Do not include `/dashboard` or a run path in that variable.
+
+The Pages branch contains:
+
+```text
+index.html                              Redirect to the latest dashboard
+dashboard/                              Latest published dashboard
+playwright-report/                      Latest Playwright report and attachments
+history/history.json                    Summary history restored by future runs
+runs/<run-number>/<attempt>/dashboard/   Dashboard snapshot for that run
+runs/<run-number>/<attempt>/playwright-report/
+```
+
+Only generated reports and the landing page are staged, not repository source
+or the raw results directory. Each archived dashboard keeps its Playwright
+report beside it, so relative links remain functional. Prior run directories
+are preserved using `keep_files: true`; rerunning a job with the same run number
+and attempt replaces that snapshot. Root/latest links change on each publish.
+Links appear after the push to `gh-pages` and an accepted Pages build request;
+the separate Pages build must still complete before new files are served.
 
 **Visibility:** GitHub Pages may be publicly accessible even for a private
 repository, depending on your plan and organization settings. Confirm access
 controls before enabling it. Publishing also exposes the included Playwright
-report and any screenshots, traces, or attachments it contains. The workflow
-replaces the repository's current Pages site; do not enable it alongside an
-existing site you want to preserve.
+report and any screenshots, traces, or attachments it contains. Existing branch
+files are retained, but this workflow overwrites the root landing page,
+`dashboard`, `playwright-report`, `history/history.json`, and matching run paths.
+Do not use it alongside a site using those paths. Archived reports remain in
+`gh-pages` until manually removed; artifact retention does not remove published
+files or Git history. Monitor repository/Pages size as reports accumulate.
 
-GitHub Actions caches summary history per branch/PR ref; cache eviction or a new
-ref starts fresh history. Parallel runs may restore the same history snapshot,
-so the cache is a best-effort trend, not a durable audit log. Reruns have separate
-attempt IDs. No repository secrets are needed. Test/dashboard generation jobs
-have read-only repository access; only the deployment job receives `pages:
-write` and `id-token: write` for GitHub Pages.
+History is restored from `gh-pages/history/history.json`, not an Actions cache.
+The first run or a missing ledger starts new history with an explicit log
+message; fetch errors and corrupt history fail normally. PRs/other branches can
+read published history for their artifacts but never update it. Parallel builds
+may restore the same history snapshot, so the trend is best-effort; publishing
+is serialized and archived run directories are retained. Reruns have separate
+attempt IDs. No custom repository secrets are needed. Test/dashboard generation
+jobs have read-only repository access; only the publishing job receives
+`contents: write` to push the reports branch and `pages: write` to verify settings
+and request the Pages build.
 
 Reports include test titles and error details. Review artifacts before sharing
 if your tests handle sensitive data.
