@@ -12,8 +12,11 @@ permissions:
 
 jobs:
   test:
+    name: UI and API tests
     timeout-minutes: 20
     runs-on: ubuntu-24.04
+    outputs:
+      tests-completed: ${{ steps.tests.outcome == 'success' || steps.tests.outcome == 'failure' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@28802689a136bfcdb721715abd713740beecbe07
@@ -30,8 +33,50 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Run UI and API examples
+        id: tests
+        run: npm test
+
+      - name: Upload test results and Playwright report
+        if: ${{ !cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: error
+          retention-days: 7
+
+  dashboard:
+    name: Generate dashboard
+    needs: test
+    if: ${{ !cancelled() && needs.test.outputs.tests-completed == 'true' }}
+    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@28802689a136bfcdb721715abd713740beecbe07
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Test dashboard generator
         run: npm run test:dashboard
+
+      - name: Download test results and Playwright report
+        uses: actions/download-artifact@v4
+        with:
+          name: playwright-results
 
       - name: Restore dashboard history
         uses: actions/cache/restore@v4
@@ -41,35 +86,70 @@ jobs:
           restore-keys: |
             dashboard-v1-${{ runner.os }}-${{ github.ref }}-
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium firefox webkit
-
-      - name: Run UI and API examples
-        id: tests
-        run: npm test
-
       - name: Generate engineering dashboard
-        id: dashboard
-        if: ${{ !cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
-        run: |
-          npm run dashboard
-          echo "### Engineering dashboard" >> "$GITHUB_STEP_SUMMARY"
-          echo "Download the playwright-results artifact and open dashboard/index.html. Keep the extracted folders together for Playwright report links." >> "$GITHUB_STEP_SUMMARY"
+        run: npm run dashboard
 
       - name: Save dashboard history
-        if: ${{ !cancelled() && steps.dashboard.outcome == 'success' }}
         uses: actions/cache/save@v4
         with:
           path: dashboard/history.json
           key: dashboard-v1-${{ runner.os }}-${{ github.ref }}-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Upload dashboard, HTML report, and failure artifacts
-        if: ${{ !cancelled() }}
+      - name: Upload dashboard and Playwright report
+        id: dashboard-artifact
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-results
+          name: engineering-dashboard
           path: |
-            playwright-report/
-            test-results/
             dashboard/
+            playwright-report/
+          if-no-files-found: error
           retention-days: 7
+
+      - name: Link dashboard artifact in Actions summary
+        env:
+          ARTIFACT_URL: ${{ steps.dashboard-artifact.outputs.artifact-url }}
+        run: |
+          printf '### Engineering dashboard\n\n[Download dashboard and Playwright report](%s)\n\nExtract the artifact and open `dashboard/index.html`.\n\nDefault-branch runs also publish a live link in the **Publish dashboard** job summary after deployment. Other branches and pull requests are artifact-only.\n' "$ARTIFACT_URL" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prepare GitHub Pages site
+        if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        run: |
+          mkdir -p _site
+          cp -R dashboard playwright-report _site/
+          cp .github/pages/index.html _site/index.html
+
+      - name: Upload GitHub Pages site
+        if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site/
+
+  deploy-dashboard:
+    name: Publish dashboard
+    needs: dashboard
+    if: ${{ !cancelled() && needs.dashboard.result == 'success' && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Deploy dashboard to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Link live dashboard in Actions summary
+        env:
+          DASHBOARD_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          printf '### Engineering dashboard\n\n[View live dashboard](%s)\n\nThis URL shows the latest published default-branch report, including failed test runs. Download the engineering-dashboard artifact for this specific run.\n' "$DASHBOARD_URL" >> "$GITHUB_STEP_SUMMARY"

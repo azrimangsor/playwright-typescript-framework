@@ -155,18 +155,56 @@ entry rather than duplicating it. Only available history is plotted.
 
 ### GitHub Actions
 
-The existing `.github/workflows/playwright.yml` installs dependencies and the
-three browser engines, runs type checking, generator checks, and all examples.
-After the test step completes, **even if tests fail**, it generates the dashboard
-without masking the original test failure. It uploads `dashboard`,
-`playwright-report`, and `test-results` together in the `playwright-results`
-artifact (retained for seven days). Download and extract the artifact, then open
-`dashboard/index.html`. This does not publish a public website.
+The existing `.github/workflows/playwright.yml` has three independent jobs:
+
+1. **UI and API tests** installs dependencies and browsers, type-checks, runs all
+   examples, and uploads `playwright-results` containing the Playwright report
+   and raw test results.
+2. **Generate dashboard** waits for UI/API tests to finish, downloads their
+   results, checks the generator, and builds the dashboard, **even if tests
+   fail**. Test failures remain failures; they are not masked. This job is
+   skipped if tests never ran or the workflow was cancelled.
+3. **Publish dashboard** deploys the generated site to GitHub Pages, only for
+   non-PR runs on the repository's default branch. It can publish failing test
+   results as long as dashboard generation succeeded. Other branches and pull
+   requests do not publish or overwrite the live site.
+
+The **Generate dashboard** summary contains a download link to the
+`engineering-dashboard` artifact, which includes `dashboard` and
+`playwright-report`. Extract it and open `dashboard/index.html`. Both report
+artifacts are retained for seven days. HTML artifacts cannot be viewed directly
+inside GitHub Actions; the live browser-viewable link uses GitHub Pages.
+
+#### Enable the clickable live dashboard
+
+1. In repository **Settings > Pages > Build and deployment**, set **Source** to
+   **GitHub Actions**. The repository/organization must allow GitHub Pages.
+2. If required, approve/configure the `github-pages` deployment environment and
+   allow deployments from the default branch.
+3. Push this workflow to the default branch, or run **Playwright Tests** manually
+   on that branch after the workflow is available there.
+4. Open the Actions run summary. Click **View live dashboard** in the **Publish
+   dashboard** summary, or use the `github-pages` environment deployment link.
+
+The Pages root redirects to the dashboard. Playwright report links remain
+functional because only `dashboard`, `playwright-report`, and the landing page
+are staged for publishing, not the repository source or raw results directory.
+The live URL shows the most recently deployed default-branch report; it is not
+a permanent per-run URL. Use that run's artifact for an archived snapshot.
+
+**Visibility:** GitHub Pages may be publicly accessible even for a private
+repository, depending on your plan and organization settings. Confirm access
+controls before enabling it. Publishing also exposes the included Playwright
+report and any screenshots, traces, or attachments it contains. The workflow
+replaces the repository's current Pages site; do not enable it alongside an
+existing site you want to preserve.
 
 GitHub Actions caches summary history per branch/PR ref; cache eviction or a new
 ref starts fresh history. Parallel runs may restore the same history snapshot,
 so the cache is a best-effort trend, not a durable audit log. Reruns have separate
-attempt IDs. No repository secrets or write permissions are needed.
+attempt IDs. No repository secrets are needed. Test/dashboard generation jobs
+have read-only repository access; only the deployment job receives `pages:
+write` and `id-token: write` for GitHub Pages.
 
 Reports include test titles and error details. Review artifacts before sharing
 if your tests handle sensitive data.
