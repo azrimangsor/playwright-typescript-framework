@@ -5,6 +5,17 @@ TypeScript, shared fixtures, page objects, built-in HTML reporting, and a
 configurable engineering dashboard.
 No application accounts, secrets, or external reporting services are required.
 
+## Framework at a glance
+
+![Engineering dashboard preview showing run metrics, pass-rate history, browser and API project breakdown, and run health. Sample run data.](docs/assets/engineering-dashboard.png)
+
+- Run UI tests in Chromium, Firefox, and WebKit, alongside isolated API tests.
+- Reuse typed fixtures and page objects to keep test setup and UI interactions consistent.
+- Turn Playwright JSON results into a self-contained dashboard with run history,
+  project breakdowns, suite health, and searchable test results.
+- Use the included GitHub Actions workflow to test, generate reports, and optionally
+  publish the dashboard to GitHub Pages.
+
 ## Setup
 
 Requires Node.js 24 or newer and npm.
